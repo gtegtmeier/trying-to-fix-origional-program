@@ -12,9 +12,10 @@ def build_engine_diagnostics(
     hard_violations: List[str],
     score: float,
     score_breakdown: Dict[str, Any],
-    legacy_diag: Dict[str, Any],
+    coverage: Dict[str, Any],
+    informational_notes: List[str],
 ) -> Dict[str, Any]:
-    diag = dict(legacy_diag or {})
+    diag: Dict[str, Any] = {}
     diag["engine_pipeline"] = {
         "label": nrm.label,
         "validation_errors": list(validation.errors),
@@ -29,12 +30,16 @@ def build_engine_diagnostics(
             "deprecated": sorted(nrm.deprecated_inputs.keys()),
         },
         "disconnected_inputs": disconnected_inputs(nrm),
+        "informational_notes": informational_notes,
+        "coverage": coverage,
     }
+    diag["limiting_factors"] = list(hard_violations[:20])
+    diag["infeasible"] = bool(hard_violations)
     return diag
 
 
 def disconnected_inputs(nrm: NormalizedInput) -> List[str]:
-    out: List[str] = []
+    out: List[str] = list(nrm.disconnected_inputs)
     if nrm.deprecated_inputs.get("weekly_hours_cap_legacy", 0.0):
         out.append("manager_goals.weekly_hours_cap (legacy compatibility field)")
-    return out
+    return sorted(out)

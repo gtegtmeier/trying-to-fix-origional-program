@@ -1,19 +1,27 @@
 # Verification Report
 
 ## Checks Run
-1. Syntax/import compilation check across app and new engine modules.
-2. Normalization + validation smoke run against production-like `scheduler_data.json`.
-3. Reviewed generator path wiring from UI into engine orchestrator.
+1. Syntax/import validation for rebuilt engine modules.
+2. Schedule generation smoke test against a minimal in-memory `DataModel`.
+3. Save/load smoke test (`save_data` then `load_data`) followed by generation.
+4. App launch smoke test (Tk init) in this environment.
+5. Validation that disconnected inputs are surfaced in diagnostics.
+6. Scan for legacy solver/scoring calls remaining under `engine/`.
 
 ## Results
-- `py_compile` completed successfully for updated modules.
-- Normalization/validation smoke succeeded and returned valid model signals.
-- UI generate workflow now routes through `engine.solver.run_scheduler_engine`.
+- Syntax/import check passed.
+- Schedule generation smoke passed (`assignments=1`, `filled=1`, `total=2` for test model).
+- Save/load smoke passed and loaded model generated successfully.
+- App launch smoke could not fully run due headless environment (`$DISPLAY` missing).
+- Disconnected inputs are explicitly surfaced (`disconnected_count=15` in smoke output).
+- No remaining calls in `engine/` to legacy generation/scoring functions (`generate_schedule*`, `schedule_score`, `history_stats_from`, demand-forecast mutator).
+
+## Commands Executed
+- `python -m py_compile LaborForceScheduler/engine/models.py LaborForceScheduler/engine/normalization.py LaborForceScheduler/engine/validation.py LaborForceScheduler/engine/rules.py LaborForceScheduler/engine/scoring.py LaborForceScheduler/engine/solver.py LaborForceScheduler/engine/explain.py`
+- `python - <<'PY' ... run_scheduler_engine(...) + save_data/load_data smoke ... PY` (run from `LaborForceScheduler/`)
+- `python - <<'PY' ... tkinter.Tk() launch smoke ... PY` (run from `LaborForceScheduler/`)
+- `rg -n "generate_schedule|generate_schedule_multi_scenario|schedule_score|history_stats_from|apply_demand_forecast_to_model|legacy_diag" LaborForceScheduler/engine -g '!*.pyc'`
 
 ## Notes / Limitations
-- Full end-to-end solve smoke with default optimization settings can take significant runtime in this environment; verification focused on deterministic compile and normalization path checks.
-- No UI screenshot captured (desktop Tkinter app, no browser-rendered front-end component change).
-
-## Behavior Confirmation
-- Existing legacy solver and scoring remain in use to preserve existing schedule behavior.
-- New diagnostics now include explicit bucketed input classification and deprecated/disconnected input exposure.
+- UI runtime launch is limited by headless CI/container environment (no X display).
+- This phase intentionally prioritizes explicit enforcement/diagnostics in `engine/` over reproducing every heuristic from the legacy monolithic solver.
