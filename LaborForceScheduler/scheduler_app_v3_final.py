@@ -5708,7 +5708,19 @@ class SchedulerApp(tk.Tk):
                 ("Staffing Requirements", lambda: self.open_legacy_tab(self.tab_reqs, "scheduling")),
             ],
         )
-        self.page_scheduling = SchedulingPage(self.page_host)
+        self.page_scheduling = SchedulingPage(
+            self.page_host,
+            days=DAYS,
+            callbacks={
+                "generate": self.on_generate,
+                "improve": self.open_schedule_changes,
+                "save": self.autosave,
+                "publish": self.open_publish,
+                "open_legacy_notebook": self.open_scheduling_legacy_notebook,
+                "open_legacy_manual": self.open_manual_editor,
+                "open_analysis": self.open_schedule_analysis,
+            },
+        )
         self.page_analysis = LandingPage(
             self.page_host,
             title="Analysis",
@@ -5749,7 +5761,7 @@ class SchedulerApp(tk.Tk):
         for frame in self.pages.values():
             frame.grid(row=0, column=0, sticky="nsew")
 
-        self.nb = ttk.Notebook(self.page_scheduling.content)
+        self.nb = ttk.Notebook(self.page_scheduling.legacy_host)
         self.nb.pack(fill="both", expand=True, pady=(6, 0))
 
         self.tab_store = ttk.Frame(self.nb)
@@ -5819,6 +5831,37 @@ class SchedulerApp(tk.Tk):
     def open_publish(self):
         self.show_page("publish")
 
+    def open_scheduling_legacy_notebook(self):
+        self.open_legacy_tab(self.tab_gen, "scheduling")
+
+    def open_manual_editor(self):
+        self.open_legacy_tab(self.tab_manual, "scheduling")
+
+    def open_schedule_analysis(self):
+        self.open_legacy_tab(self.tab_analysis, "scheduling")
+
+    def _refresh_scheduling_workspace(self):
+        state_text = "Draft"
+        if self.current_assignments:
+            state_text = "Generated"
+        draft_state = "Draft changes: pending save" if self.status_var.get().strip() else "Draft changes: none"
+        payload = {
+            "week_label": self.current_label or "Not selected",
+            "state_text": state_text,
+            "assignments": list(self.current_assignments or []),
+            "warnings": list(self.current_warnings or []),
+            "diagnostics": dict(self.current_diagnostics or {}),
+            "total_hours": float(getattr(self, "current_total_hours", 0.0) or 0.0),
+            "emp_hours": dict(self.current_emp_hours or {}),
+            "filled_slots": int(getattr(self, "current_filled", 0) or 0),
+            "total_slots": int(getattr(self, "current_total_slots", 0) or 0),
+            "draft_state": draft_state,
+        }
+        try:
+            self.page_scheduling.refresh_workspace(payload)
+        except Exception:
+            pass
+
     def _refresh_shell_status(self):
         try:
             store = self.model.store_info.store_name.strip() or "Unassigned"
@@ -5844,6 +5887,7 @@ class SchedulerApp(tk.Tk):
         self.page_dashboard.week_var.set(f"Current Week: {week}")
         self.page_dashboard.status_var.set(f"Status: {dash_status}")
         self.page_dashboard.warning_var.set(f"Warnings: {warning_count}")
+        self._refresh_scheduling_workspace()
 
     # -------- Store tab --------
     def _build_store_tab(self):
