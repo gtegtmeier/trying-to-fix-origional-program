@@ -1,0 +1,34 @@
+Instructions (quick)
+
+Employees:
+- Add employees, set areas allowed, recurring availability, fixed schedules (locked or preference).
+- Set wants_hours=True for employees you want the system to try to give at least 1 hour per week.
+
+Weekly Overrides:
+- Add one-week blackout windows per employee per day.
+- Use "Copy Overrides From Last Saved Week" to reuse patterns.
+
+Requirements:
+- Requirements are per 30-minute block.
+- Use bulk apply and Copy->Paste to avoid editing each day.
+
+Generate:
+- Generate schedule (optimizer).
+- Save to History after generation so fairness uses past weeks.
+
+Print / Export:
+- Open Print View (HTML) for one-page landscape.
+- Export CSV
+- Export PDF if reportlab is available.
+
+ND minors:
+- Settings -> ND minor rules:
+  - Enforce ND 14-15 hour windows and hour limits.
+  - Toggle "school week" for weekly caps.
+
+
+
+DATA SAFETY NOTE:
+- Your data lives in .\data\scheduler_data.json
+- Updating the program file does NOT delete your data.
+- Backups are stored in .\history\backups (created on manual saves / close).
