@@ -83,6 +83,29 @@ def audit_hard_constraints(nrm: NormalizedInput, assignments: List[Assignment]) 
         if mx and hrs > mx + 1e-9:
             violations.append(f"{emp} exceeds max weekly hours: {hrs:.1f} > {mx:.1f}.")
 
+
+    if bool(nrm.hard_inputs.get("nd_minor_enforce", True)):
+        school_week = bool(nrm.hard_inputs.get("nd_school_week", True))
+        for emp, lim in limits.items():
+            if str(lim.get("minor_type", "ADULT")) != "MINOR_14_15":
+                continue
+            weekly = 0.0
+            for day in DAYS:
+                day_h = sum(_hours(a) for a in by_emp_day.get((emp, day), []))
+                weekly += day_h
+                is_school_day = school_week and day in {"Mon", "Tue", "Wed", "Thu", "Fri"}
+                day_cap = 3.0 if is_school_day else 8.0
+                if day_h > day_cap + 1e-9:
+                    violations.append(f"ND Minor 14-15 {emp} exceeds daily cap on {day}: {day_h:.1f} > {day_cap:.1f}.")
+                latest = 38 if school_week else 42
+                earliest = 14
+                for seg in by_emp_day.get((emp, day), []):
+                    if int(seg.start_t) < earliest or int(seg.end_t) > latest:
+                        violations.append(f"ND Minor 14-15 {emp} outside allowed window on {day}: {seg.start_t}-{seg.end_t}.")
+            week_cap = 18.0 if school_week else 40.0
+            if weekly > week_cap + 1e-9:
+                violations.append(f"ND Minor 14-15 {emp} exceeds weekly cap: {weekly:.1f} > {week_cap:.1f}.")
+
     for req_key, req in nrm.requirements.items():
         mn = int(req.get("min_count", 0) or 0)
         staffed = sum(by_day_slot_area.get((req_key.day, t, req_key.area), 0) for t in range(req_key.start_t, req_key.end_t))

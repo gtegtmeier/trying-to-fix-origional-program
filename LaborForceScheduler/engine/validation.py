@@ -36,6 +36,11 @@ def validate_normalized_input(nrm: NormalizedInput) -> ValidationResult:
     if max_cap and pref_cap and pref_cap > max_cap:
         result.warnings.append("Preferred weekly cap is higher than maximum weekly cap.")
 
+
+    for bucket, mult in (nrm.soft_inputs.get("demand_multipliers", {}) or {}).items():
+        if float(mult) <= 0:
+            result.errors.append(f"Demand multiplier for {bucket} must be positive.")
+
     if nrm.disconnected_inputs:
         result.warnings.append(
             f"Disconnected inputs detected: {', '.join(nrm.disconnected_inputs[:8])}"

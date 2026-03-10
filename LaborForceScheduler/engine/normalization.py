@@ -23,11 +23,35 @@ def _active_employees(model: DataModel) -> Dict[str, Any]:
 
 def normalize_model(model: DataModel, label: str) -> NormalizedInput:
     reqs: Dict[RequirementKey, Dict[str, int]] = {}
+    demand_multipliers = {
+        "morning": float(getattr(model.manager_goals, "demand_morning_multiplier", 1.0) or 1.0),
+        "midday": float(getattr(model.manager_goals, "demand_midday_multiplier", 1.0) or 1.0),
+        "evening": float(getattr(model.manager_goals, "demand_evening_multiplier", 1.0) or 1.0),
+    }
+
+    def _bucket_for_tick(tick: int) -> str:
+        h = (int(tick) // 2) % 24
+        if 5 <= h < 11:
+            return "morning"
+        if 11 <= h < 17:
+            return "midday"
+        return "evening"
+
     for r in model.requirements:
-        reqs[RequirementKey(r.day, r.area, int(r.start_t), int(r.end_t))] = {
-            "min_count": int(r.min_count),
-            "preferred_count": int(r.preferred_count),
-            "max_count": int(r.max_count),
+        st = int(r.start_t)
+        en = int(r.end_t)
+        span = max(1, en - st)
+        mults = [demand_multipliers.get(_bucket_for_tick(t), 1.0) for t in range(st, en)]
+        avg_mult = sum(mults) / float(len(mults)) if mults else 1.0
+        mn = max(0, int(round(int(r.min_count) * avg_mult)))
+        pref = max(mn, int(round(int(r.preferred_count) * avg_mult)))
+        mx = max(pref, int(round(int(r.max_count) * avg_mult)))
+        reqs[RequirementKey(r.day, r.area, st, en)] = {
+            "min_count": mn,
+            "preferred_count": pref,
+            "max_count": mx,
+            "span_ticks": span,
+            "applied_demand_multiplier": avg_mult,
         }
 
     employees = _active_employees(model)
@@ -63,11 +87,9 @@ def normalize_model(model: DataModel, label: str) -> NormalizedInput:
         },
         "stability_enabled": bool(getattr(model.manager_goals, "enable_schedule_stability", True)),
         "risk_enabled": bool(getattr(model.manager_goals, "enable_risk_aware_optimization", True)),
-        "demand_multipliers": {
-            "morning": float(getattr(model.manager_goals, "demand_morning_multiplier", 1.0) or 1.0),
-            "midday": float(getattr(model.manager_goals, "demand_midday_multiplier", 1.0) or 1.0),
-            "evening": float(getattr(model.manager_goals, "demand_evening_multiplier", 1.0) or 1.0),
-        },
+        "coverage_risk_enabled": bool(getattr(model.manager_goals, "enable_coverage_risk_protection", True)),
+        "protect_single_point_failures": bool(getattr(model.manager_goals, "protect_single_point_failures", True)),
+        "demand_multipliers": demand_multipliers,
     }
 
     informational = {
@@ -98,6 +120,8 @@ def normalize_model(model: DataModel, label: str) -> NormalizedInput:
         "coverage_goal_pct",
         "enable_schedule_stability",
         "enable_risk_aware_optimization",
+        "enable_coverage_risk_protection",
+        "protect_single_point_failures",
         "demand_morning_multiplier",
         "demand_midday_multiplier",
         "demand_evening_multiplier",
