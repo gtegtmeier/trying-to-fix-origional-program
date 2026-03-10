@@ -9,20 +9,23 @@ class DashboardPage(ttk.Frame):
         self.week_var = tk.StringVar(value="Current Week: N/A")
         self.status_var = tk.StringVar(value="Status: No schedule generated yet")
         self.warning_var = tk.StringVar(value="Warnings: 0")
+        self.health_var = tk.StringVar(value="Schedule Health: --")
 
         ttk.Label(self, text="Dashboard", style="SubHeader.TLabel").pack(anchor="w", pady=(4, 8))
         ttk.Label(self, textvariable=self.week_var).pack(anchor="w")
         ttk.Label(self, textvariable=self.status_var).pack(anchor="w", pady=(2, 0))
-        ttk.Label(self, textvariable=self.warning_var).pack(anchor="w", pady=(2, 10))
+        ttk.Label(self, textvariable=self.warning_var).pack(anchor="w", pady=(2, 0))
+        ttk.Label(self, textvariable=self.health_var).pack(anchor="w", pady=(2, 10))
 
         quick = ttk.LabelFrame(self, text="Quick Actions")
         quick.pack(fill="x", pady=(0, 12))
         for txt, cb in actions:
             ttk.Button(quick, text=txt, command=cb).pack(side="left", padx=6, pady=8)
 
-        risks = ttk.LabelFrame(self, text="Risk / Warning Summary")
-        risks.pack(fill="x")
-        ttk.Label(risks, text="Use Schedule Analysis for detailed diagnostics. This panel reserves dashboard KPI space.").pack(anchor="w", padx=8, pady=8)
+        self.risk_summary = ttk.LabelFrame(self, text="Coverage Risk Snapshot")
+        self.risk_summary.pack(fill="x")
+        self.risk_summary_var = tk.StringVar(value="No risk windows yet. Generate or open a schedule to populate this summary.")
+        ttk.Label(self.risk_summary, textvariable=self.risk_summary_var, wraplength=920, justify="left").pack(anchor="w", padx=8, pady=8)
 
 
 class LandingPage(ttk.Frame):
@@ -59,6 +62,7 @@ class SchedulingPage(ttk.Frame):
         self._assignment_index: Dict[Tuple[str, str], List[Any]] = {}
         self._emp_hours: Dict[str, float] = {}
         self._selected_key: Optional[Tuple[str, str]] = None
+        self._risk_windows: List[Dict[str, Any]] = []
 
         ttk.Label(self, text="Edit & Review Schedule", style="SubHeader.TLabel").pack(anchor="w", pady=(4, 6))
         self._build_toolbar()
@@ -66,6 +70,7 @@ class SchedulingPage(ttk.Frame):
         self._build_summary_strip()
         self._build_workspace()
         self._build_issue_panel()
+        self._build_manager_intelligence_panel()
         self.legacy_host = ttk.Frame(self)
         self.legacy_host.pack(fill="both", expand=True, pady=(6, 0))
 
@@ -122,19 +127,16 @@ class SchedulingPage(ttk.Frame):
         ysb = ttk.Scrollbar(grid_wrap, orient="vertical", command=self.grid_tree.yview)
         self.grid_tree.configure(yscrollcommand=ysb.set)
         ysb.pack(side="right", fill="y")
-        self.grid_tree.bind("<<TreeviewSelect>>", self._on_grid_select)
         self.grid_tree.bind("<ButtonRelease-1>", self._on_grid_click)
+        self.grid_tree.bind("<<TreeviewSelect>>", self._on_grid_select)
 
-        insp = ttk.LabelFrame(work, text="Inspector / Editor")
-        insp.pack(side="left", fill="y")
-        for var in [
-            self.selection_emp_var,
-            self.selection_day_var,
-            self.selection_shift_var,
-            self.selection_area_var,
-            self.selection_hours_var,
-        ]:
-            ttk.Label(insp, textvariable=var, wraplength=290, justify="left").pack(anchor="w", padx=10, pady=4)
+        insp = ttk.LabelFrame(work, text="Selection Details")
+        insp.pack(side="right", fill="y")
+        ttk.Label(insp, textvariable=self.selection_emp_var).pack(anchor="w", padx=10, pady=(8, 2))
+        ttk.Label(insp, textvariable=self.selection_day_var).pack(anchor="w", padx=10)
+        ttk.Label(insp, textvariable=self.selection_area_var).pack(anchor="w", padx=10)
+        ttk.Label(insp, textvariable=self.selection_hours_var).pack(anchor="w", padx=10)
+        ttk.Label(insp, textvariable=self.selection_shift_var, wraplength=360, justify="left").pack(anchor="w", padx=10, pady=(2, 8))
 
         ttk.Label(insp, text="Warnings / Issues").pack(anchor="w", padx=10, pady=(8, 2))
         self.issue_text = tk.Text(insp, height=8, width=42, wrap="word")
@@ -159,10 +161,76 @@ class SchedulingPage(ttk.Frame):
         ysb.pack(side="right", fill="y")
         self.issue_tree.bind("<<TreeviewSelect>>", self._on_issue_select)
 
+    def _build_manager_intelligence_panel(self):
+        wrap = ttk.LabelFrame(self, text="Manager Intelligence")
+        wrap.pack(fill="x", pady=(6, 0))
+
+        left = ttk.Frame(wrap)
+        left.pack(side="left", fill="both", expand=True, padx=(0, 6))
+        ttk.Label(left, text="Coverage Risk Map").pack(anchor="w")
+        self.risk_tree = ttk.Treeview(left, columns=("severity", "day", "time", "area", "reason"), show="headings", height=7)
+        for key, title, width in [
+            ("severity", "Severity", 80),
+            ("day", "Day", 70),
+            ("time", "Time", 140),
+            ("area", "Area", 110),
+            ("reason", "Why this window is risky", 520),
+        ]:
+            self.risk_tree.heading(key, text=title)
+            self.risk_tree.column(key, width=width, anchor="w")
+        self.risk_tree.pack(fill="x", expand=True)
+        self.risk_tree.bind("<<TreeviewSelect>>", self._on_risk_select)
+
+        right = ttk.Frame(wrap)
+        right.pack(side="left", fill="both", expand=True, padx=(6, 0))
+        ttk.Label(right, text="Call-Off Impact + Replacements").pack(anchor="w")
+        top = ttk.Frame(right)
+        top.pack(fill="x", pady=(2, 4))
+        self.calloff_emp_var = tk.StringVar(value="")
+        self.calloff_emp_menu = ttk.Combobox(top, textvariable=self.calloff_emp_var, state="readonly", width=24)
+        self.calloff_emp_menu.pack(side="left")
+        ttk.Button(top, text="Simulate", command=self._trigger_calloff).pack(side="left", padx=6)
+
+        self.calloff_tree = ttk.Treeview(right, columns=("window", "impact", "suggestion"), show="headings", height=7)
+        self.calloff_tree.heading("window", text="Window")
+        self.calloff_tree.heading("impact", text="Impact")
+        self.calloff_tree.heading("suggestion", text="Top replacement suggestion")
+        self.calloff_tree.column("window", width=210, anchor="w")
+        self.calloff_tree.column("impact", width=120, anchor="w")
+        self.calloff_tree.column("suggestion", width=360, anchor="w")
+        self.calloff_tree.pack(fill="x", expand=True)
+
+        health = ttk.LabelFrame(self, text="Schedule Health / Improve Schedule")
+        health.pack(fill="x", pady=(6, 0))
+        self.health_score_var = tk.StringVar(value="Overall Health: --")
+        ttk.Label(health, textvariable=self.health_score_var).pack(anchor="w", padx=8, pady=(6, 4))
+        self.health_detail_var = tk.StringVar(value="Coverage -- | Risk -- | Fairness -- | Stability -- | Compliance --")
+        ttk.Label(health, textvariable=self.health_detail_var).pack(anchor="w", padx=8, pady=(0, 6))
+        action_bar = ttk.Frame(health)
+        action_bar.pack(fill="x", padx=8, pady=(0, 8))
+        for label, key in [
+            ("Improve Fairness", "improve_fairness"),
+            ("Reduce Risk", "reduce_risk"),
+            ("Improve Stability", "improve_stability"),
+            ("Fill Weak Coverage", "fill_weak_coverage"),
+            ("Improve Overall", "improve_overall"),
+        ]:
+            ttk.Button(action_bar, text=label, command=lambda k=key: self._invoke_improve(k)).pack(side="left", padx=3)
+
     def _invoke(self, key: str):
         cb = self.callbacks.get(key)
         if cb:
             cb()
+
+    def _invoke_improve(self, action: str):
+        cb = self.callbacks.get("improve_action")
+        if cb:
+            cb(action)
+
+    def _trigger_calloff(self):
+        cb = self.callbacks.get("simulate_calloff")
+        if cb:
+            cb(self.calloff_emp_var.get())
 
     def refresh_workspace(self, payload: Dict[str, Any]):
         self.week_var.set(f"Week: {payload.get('week_label', 'Not selected')}")
@@ -183,6 +251,12 @@ class SchedulingPage(ttk.Frame):
         self._build_assignment_index(list(payload.get("assignments", []) or []))
         self._rebuild_grid()
         self._rebuild_issue_list(warnings, diagnostics)
+
+        self._risk_windows = list(payload.get("risk_windows", []) or [])
+        self._rebuild_risk_map()
+        self._load_calloff_employees(list(payload.get("employee_names", []) or []))
+        self._rebuild_calloff_results(list(payload.get("calloff_windows", []) or []))
+        self._render_health_summary(dict(payload.get("health_summary", {}) or {}))
 
     def _compute_health(self, total_slots: int, filled: int, warning_count: int) -> str:
         if total_slots <= 0:
@@ -227,6 +301,38 @@ class SchedulingPage(ttk.Frame):
             self.issue_tree.insert("", "end", values=("Warning", str(w)))
         for note in list(diagnostics.get("limiting_factors", []) or []):
             self.issue_tree.insert("", "end", values=("Diagnostic", str(note)))
+
+    def _rebuild_risk_map(self):
+        for iid in self.risk_tree.get_children():
+            self.risk_tree.delete(iid)
+        for idx, risk in enumerate(self._risk_windows):
+            self.risk_tree.insert("", "end", iid=f"risk-{idx}", values=(risk.get("severity", "--"), risk.get("day", "--"), risk.get("time", "--"), risk.get("area", "--"), risk.get("reason", "")))
+
+    def _load_calloff_employees(self, names: List[str]):
+        self.calloff_emp_menu["values"] = names
+        if names and self.calloff_emp_var.get() not in names:
+            self.calloff_emp_var.set(names[0])
+
+    def _rebuild_calloff_results(self, windows: List[Dict[str, Any]]):
+        for iid in self.calloff_tree.get_children():
+            self.calloff_tree.delete(iid)
+        for idx, w in enumerate(windows):
+            top = (w.get("suggestions") or [{}])[0]
+            sug = "No valid replacement"
+            if top and top.get("employee"):
+                sug = f"{top.get('employee')} — {top.get('reason', '')}"
+            self.calloff_tree.insert("", "end", iid=f"co-{idx}", values=(f"{w.get('day')} {w.get('area')} {w.get('time')}", f"{w.get('deficit_hours', 0)}h / peak {w.get('peak_deficit', 0)}", sug))
+
+    def _render_health_summary(self, health: Dict[str, Any]):
+        if not health:
+            self.health_score_var.set("Overall Health: --")
+            self.health_detail_var.set("Coverage -- | Risk -- | Fairness -- | Stability -- | Compliance --")
+            return
+        self.health_score_var.set(f"Overall Health: {health.get('overall', '--')}")
+        dims = dict(health.get("dimensions", {}) or {})
+        self.health_detail_var.set(
+            f"Coverage {dims.get('Coverage', '--')} | Risk {dims.get('Risk', '--')} | Fairness {dims.get('Fairness', '--')} | Stability {dims.get('Stability', '--')} | Compliance {dims.get('Compliance', '--')}"
+        )
 
     def _on_grid_click(self, event):
         iid = self.grid_tree.identify_row(event.y)
@@ -275,3 +381,18 @@ class SchedulingPage(ttk.Frame):
         msg = str(vals[1]) if len(vals) > 1 else ""
         self.issue_text.delete("1.0", tk.END)
         self.issue_text.insert(tk.END, msg)
+
+    def _on_risk_select(self, _event):
+        sel = self.risk_tree.selection()
+        if not sel:
+            return
+        try:
+            idx = int(str(sel[0]).split("-")[-1])
+            risk = self._risk_windows[idx]
+        except Exception:
+            return
+        self.issue_text.delete("1.0", tk.END)
+        self.issue_text.insert(tk.END, risk.get("reason", ""))
+        cb = self.callbacks.get("focus_risk")
+        if cb:
+            cb(risk)

@@ -1,33 +1,59 @@
-# Verification Report
+# Verification Report — Manager Intelligence Layer
 
-## Required validation checklist
-1. Syntax/import validation.
-2. App launch smoke test.
-3. Generate schedule smoke test.
-4. Scheduling page render smoke test.
-5. Selection/inspector interaction smoke test.
-6. Save/load smoke test.
-7. Issue/risk panel population confirmation from diagnostics.
-8. Legacy scheduling/edit fallback confirmation.
+## Phase 1 gate — Coverage Risk Map
+### Static/code audit
+- Checked for broken imports, missing callbacks, and stale page wiring.
+- Repaired: added explicit `focus_risk` callback wiring and robust helper import failure logging.
 
-## Results
-- **1) Syntax/import validation:** PASS.
-- **2) App launch smoke test:** WARNING (headless environment has no `$DISPLAY`; Tk root cannot initialize).
-- **3) Generate schedule smoke test:** PASS (`generate_schedule(...)` executed end-to-end on a constructed model instance).
-- **4) Scheduling page render smoke test:** WARNING (Tk rendering cannot run without display server in this environment).
-- **5) Selection/inspector interaction smoke test:** WARNING (depends on Tk render/runtime interaction; blocked by headless environment).
-- **6) Save/load smoke test:** PASS (`save_data(...)` + `load_data(...)` roundtrip on a temporary file).
-- **7) Issue/risk panel diagnostics integration:** PASS (workspace wiring includes warnings + `diagnostics.limiting_factors` in issue panel feed).
-- **8) Legacy scheduling/edit fallback:** PASS (toolbar + inspector bridge actions route to legacy notebook/manual/analysis tabs).
+### Verification run
+- `python -m py_compile LaborForceScheduler/engine/manager_intelligence.py LaborForceScheduler/ui/pages/__init__.py LaborForceScheduler/scheduler_app_v3_final.py` → PASS.
+- `python -m compileall LaborForceScheduler` → PASS.
+- `python - <<'PY' ... tkinter.Tk() ... PY` launch probe → WARNING (headless; no `$DISPLAY`).
 
-## Commands run
-- `python -m py_compile LaborForceScheduler/ui/pages/__init__.py LaborForceScheduler/scheduler_app_v3_final.py`
-- `python - <<'PY' ... tkinter.Tk() ... PY` (launch/render capability probe)
-- `python - <<'PY' ... generate_schedule(...) + save_data(...) + load_data(...) smoke ... PY`
-- `python - <<'PY' ... static checks for limiting_factors/manual bridge/workflow steps ... PY`
+### Gate outcome
+No remaining critical or high-confidence issues detected within the implemented scope and executed verification suite.
 
-## Key output snippets
-- Launch probe: `_tkinter.TclError: no display name and no $DISPLAY environment variable`
-- Generate smoke: `generate_ok 8 1 60 504 30.0 2`
-- Save/load smoke: `save_load_ok 1 756 1 802 2`
-- Static UI wiring checks: `has_limiting_factors True`, `has_legacy_manual_button True`, `has_workflow_steps True`
+---
+
+## Phase 2 gate — Call-Off Impact + Replacement Suggestions
+### Static/code audit
+- Checked for simulation-only state corruption risk and callback integrity.
+- Repaired: call-off simulation results were being overwritten on shell refresh; fixed with persisted `_last_calloff_windows` state bridge.
+
+### Verification run
+- Engine smoke script executed generation + risk map + call-off impact + health summary + save/load roundtrip in-process.
+- Confirmed simulation uses copied schedule lists (non-mutating path).
+
+### Gate outcome
+No remaining critical or high-confidence issues detected within the implemented scope and executed verification suite.
+
+---
+
+## Phase 3 gate — Schedule Health / Improve Schedule Panel
+### Static/code audit
+- Checked scorecard wiring, improvement action routing, and duplicated metric logic.
+- Repaired: compliance score computation bug in health helper (incorrect limiting-factor count expression).
+
+### Verification run
+- Re-ran compile + engine smoke script after repairs.
+- Confirmed improvement actions route to existing stable flows and do not mutate schedule directly in UI handler.
+
+### Gate outcome
+No remaining critical or high-confidence issues detected within the implemented scope and executed verification suite.
+
+---
+
+## Final global pass
+### Combined feature review
+- Terminology alignment: Coverage Risk Map, Call-Off Impact, Replacement Suggestions, Schedule Health.
+- Severity consistency: `High/Medium/Low` in risk table and dashboard summary.
+- Unified schedule-state source: workspace payload derives from `current_*` schedule state and helper outputs.
+
+### Final verification commands
+- `python -m py_compile LaborForceScheduler/engine/manager_intelligence.py LaborForceScheduler/ui/pages/__init__.py LaborForceScheduler/scheduler_app_v3_final.py`
+- `python -m compileall LaborForceScheduler`
+- `python - <<'PY' ... engine smoke script ... PY`
+- `python - <<'PY' ... tkinter launch probe ... PY`
+
+### Final statement
+No remaining critical or high-confidence issues detected within the implemented scope and executed verification suite.

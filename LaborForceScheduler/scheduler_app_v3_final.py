@@ -5455,6 +5455,7 @@ class SchedulerApp(tk.Tk):
         self.current_filled: int = 0
         self.current_total_slots: int = 0
         self.current_diagnostics: Dict[str, Any] = {}
+        self._last_calloff_windows: List[Dict[str, Any]] = []
         self.last_solver_summary = None  # populated after Generate Schedule
 
         # load if exists
@@ -5719,6 +5720,9 @@ class SchedulerApp(tk.Tk):
                 "open_legacy_notebook": self.open_scheduling_legacy_notebook,
                 "open_legacy_manual": self.open_manual_editor,
                 "open_analysis": self.open_schedule_analysis,
+                "focus_risk": self.focus_risk_window,
+                "simulate_calloff": self.run_calloff_simulation,
+                "improve_action": self.run_improve_action,
             },
         )
         self.page_analysis = LandingPage(
@@ -5840,11 +5844,91 @@ class SchedulerApp(tk.Tk):
     def open_schedule_analysis(self):
         self.open_legacy_tab(self.tab_analysis, "scheduling")
 
+    def focus_risk_window(self, risk: Dict[str, Any]):
+        day = str(risk.get("day", ""))
+        area = str(risk.get("area", ""))
+        msg = str(risk.get("reason", ""))
+        try:
+            self.status_var.set(f"Focused risk: {day} {area} — {msg[:90]}")
+            self._refresh_shell_status()
+        except Exception:
+            pass
+
+    def run_calloff_simulation(self, employee_name: str):
+        try:
+            from engine.manager_intelligence import simulate_calloff_impact
+
+            name = (employee_name or "").strip()
+            if not name:
+                return
+            result = simulate_calloff_impact(
+                self.model,
+                self.current_label or "",
+                list(self.current_assignments or []),
+                name,
+                set(DAYS),
+            )
+            self._last_calloff_windows = list(result.get("windows", []) or [])
+            payload = {
+                "week_label": self.current_label or "Not selected",
+                "state_text": "Generated" if self.current_assignments else "Draft",
+                "assignments": list(self.current_assignments or []),
+                "warnings": list(self.current_warnings or []),
+                "diagnostics": dict(self.current_diagnostics or {}),
+                "total_hours": float(getattr(self, "current_total_hours", 0.0) or 0.0),
+                "emp_hours": dict(self.current_emp_hours or {}),
+                "filled_slots": int(getattr(self, "current_filled", 0) or 0),
+                "total_slots": int(getattr(self, "current_total_slots", 0) or 0),
+                "draft_state": "Draft changes: none",
+                "risk_windows": [],
+                "employee_names": sorted({(getattr(e, "name", "") or "").strip() for e in (self.model.employees or []) if getattr(e, "work_status", "Active") == "Active" and (getattr(e, "name", "") or "").strip()}, key=str.lower),
+                "calloff_windows": list(self._last_calloff_windows or []),
+                "health_summary": {},
+            }
+            self.page_scheduling.refresh_workspace(payload)
+            self.status_var.set(f"Call-off simulation ready for {name}")
+            self._refresh_shell_status()
+        except Exception as ex:
+            _write_run_log(f"INTELLIGENCE | call-off simulation failed: {repr(ex)}")
+
+    def run_improve_action(self, action: str):
+        routes = {
+            "improve_fairness": self.open_schedule_changes,
+            "reduce_risk": self.open_schedule_analysis,
+            "improve_stability": self.open_schedule_changes,
+            "fill_weak_coverage": self.on_generate,
+            "improve_overall": self.on_generate,
+        }
+        cb = routes.get(action)
+        if cb:
+            cb()
+            self.status_var.set(f"Improve action routed: {action}")
+            self._refresh_shell_status()
+
     def _refresh_scheduling_workspace(self):
         state_text = "Draft"
         if self.current_assignments:
             state_text = "Generated"
         draft_state = "Draft changes: pending save" if self.status_var.get().strip() else "Draft changes: none"
+
+        risk_windows = []
+        health_summary = {}
+        calloff_windows = []
+        employee_names = sorted({(getattr(e, "name", "") or "").strip() for e in (self.model.employees or []) if getattr(e, "work_status", "Active") == "Active" and (getattr(e, "name", "") or "").strip()}, key=str.lower)
+        try:
+            from engine.manager_intelligence import build_coverage_risk_map, build_schedule_health_summary
+
+            risk_windows = build_coverage_risk_map(self.model, self.current_label or "", list(self.current_assignments or []))
+            health_summary = build_schedule_health_summary(
+                int(getattr(self, "current_filled", 0) or 0),
+                int(getattr(self, "current_total_slots", 0) or 0),
+                list(self.current_warnings or []),
+                risk_windows,
+                dict(self.current_diagnostics or {}),
+            )
+        except Exception as ex:
+            _write_run_log(f"INTELLIGENCE | workspace refresh helper failed: {repr(ex)}")
+
         payload = {
             "week_label": self.current_label or "Not selected",
             "state_text": state_text,
@@ -5856,6 +5940,10 @@ class SchedulerApp(tk.Tk):
             "filled_slots": int(getattr(self, "current_filled", 0) or 0),
             "total_slots": int(getattr(self, "current_total_slots", 0) or 0),
             "draft_state": draft_state,
+            "risk_windows": risk_windows,
+            "employee_names": employee_names,
+            "calloff_windows": list(getattr(self, "_last_calloff_windows", []) or []),
+            "health_summary": health_summary,
         }
         try:
             self.page_scheduling.refresh_workspace(payload)
@@ -5887,6 +5975,27 @@ class SchedulerApp(tk.Tk):
         self.page_dashboard.week_var.set(f"Current Week: {week}")
         self.page_dashboard.status_var.set(f"Status: {dash_status}")
         self.page_dashboard.warning_var.set(f"Warnings: {warning_count}")
+        try:
+            from engine.manager_intelligence import build_coverage_risk_map, build_schedule_health_summary
+
+            risk_windows = build_coverage_risk_map(self.model, self.current_label or "", list(self.current_assignments or []))
+            health = build_schedule_health_summary(
+                int(getattr(self, "current_filled", 0) or 0),
+                int(getattr(self, "current_total_slots", 0) or 0),
+                list(self.current_warnings or []),
+                risk_windows,
+                dict(self.current_diagnostics or {}),
+            )
+            self.page_dashboard.health_var.set(f"Schedule Health: {health.get('overall', '--')}")
+            if risk_windows:
+                top = risk_windows[0]
+                self.page_dashboard.risk_summary_var.set(
+                    f"Top risk: {top.get('severity')} | {top.get('day')} {top.get('time')} {top.get('area')} — {top.get('reason')}"
+                )
+            else:
+                self.page_dashboard.risk_summary_var.set("No active coverage risk windows detected in current schedule scope.")
+        except Exception as ex:
+            _write_run_log(f"INTELLIGENCE | dashboard refresh helper failed: {repr(ex)}")
         self._refresh_scheduling_workspace()
 
     # -------- Store tab --------
