@@ -29,6 +29,9 @@ import tkinter as tk
 from tkinter import ttk, messagebox, filedialog
 import tkinter.font as tkfont
 
+from ui.shell import AppShell
+from ui.pages import DashboardPage, LandingPage, SchedulingPage
+
 # ---- Build/version ----
 APP_VERSION = 'V3.5 PHASE5_E3_EMPLOYEE_FIT'
 
@@ -5659,23 +5662,95 @@ class SchedulerApp(tk.Tk):
         style.configure("SubHeader.TLabel", font=("Segoe UI", 12, "bold"))
 
     def _build_ui(self):
-        topbar = ttk.Frame(self); topbar.pack(fill="x", padx=10, pady=8)
-        # Global header (image only)
-        if getattr(self, "brand_img_header", None) is not None:
-            ttk.Label(topbar, image=self.brand_img_header).pack(side="left", padx=(0,10))
-        else:
-            ttk.Label(topbar, text="LaborForceScheduler v3.3", style="Header.TLabel").pack(side="left")
         self.status_var = tk.StringVar(value="")
-        ttk.Label(self, textvariable=self.status_var, foreground="#555").pack(anchor="w", padx=12)
+        nav_items = {
+            "dashboard": "Dashboard",
+            "configuration": "Configuration",
+            "scheduling": "Scheduling",
+            "analysis": "Analysis",
+            "publish": "Publish",
+            "history": "History",
+        }
+        self.shell = AppShell(
+            self,
+            nav_items=nav_items,
+            on_nav=self.show_page,
+            actions={
+                "generate": self.on_generate,
+                "improve": self.open_schedule_changes,
+                "publish": self.open_publish,
+                "save": self.autosave,
+                "open": self.open_dialog,
+                "new": self.new_data,
+            },
+        )
+        self.page_host = ttk.Frame(self.shell.workspace)
+        self.page_host.pack(fill="both", expand=True)
+        self.page_host.grid_rowconfigure(0, weight=1)
+        self.page_host.grid_columnconfigure(0, weight=1)
 
-        btns = ttk.Frame(topbar); btns.pack(side="right")
-        ttk.Button(btns, text="Save Now", command=self.autosave).pack(side="right", padx=6)
-        ttk.Button(btns, text="Desktop Shortcut", command=self.create_desktop_shortcut).pack(side="right", padx=6)
-        ttk.Button(btns, text="Open...", command=self.open_dialog).pack(side="right", padx=6)
-        ttk.Button(btns, text="Save As...", command=self.save_as_dialog).pack(side="right", padx=6)
-        ttk.Button(btns, text="New", command=self.new_data).pack(side="right", padx=6)
+        self.page_dashboard = DashboardPage(
+            self.page_host,
+            actions=[
+                ("Open Scheduling", lambda: self.show_page("scheduling")),
+                ("Generate Schedule", self.on_generate),
+                ("Open Publish", self.open_publish),
+            ],
+        )
+        self.page_configuration = LandingPage(
+            self.page_host,
+            title="Configuration",
+            subtitle="Manage store setup, employees, overrides, requirements, and manager goals.",
+            links=[
+                ("Store Settings", lambda: self.open_legacy_tab(self.tab_store, "scheduling")),
+                ("Employees", lambda: self.open_legacy_tab(self.tab_emps, "scheduling")),
+                ("Weekly Overrides", lambda: self.open_legacy_tab(self.tab_over, "scheduling")),
+                ("Staffing Requirements", lambda: self.open_legacy_tab(self.tab_reqs, "scheduling")),
+            ],
+        )
+        self.page_scheduling = SchedulingPage(self.page_host)
+        self.page_analysis = LandingPage(
+            self.page_host,
+            title="Analysis",
+            subtitle="Review diagnostics, coverage heatmaps, and schedule adjustments.",
+            links=[
+                ("Schedule Analysis", lambda: self.open_legacy_tab(self.tab_analysis, "scheduling")),
+                ("Schedule Changes", lambda: self.open_legacy_tab(self.tab_changes, "scheduling")),
+                ("Coverage Heatmap", lambda: self.open_legacy_tab(self.tab_heatmap, "scheduling")),
+                ("Call-Off Simulator", lambda: self.open_legacy_tab(self.tab_calloff, "scheduling")),
+            ],
+        )
+        self.page_publish = LandingPage(
+            self.page_host,
+            title="Publish",
+            subtitle="Export, print, and lock schedules for distribution.",
+            links=[
+                ("Print / Export", lambda: self.open_legacy_tab(self.tab_preview, "scheduling")),
+                ("Publish Final Schedule", lambda: self.open_legacy_tab(self.tab_preview, "scheduling")),
+            ],
+        )
+        self.page_history = LandingPage(
+            self.page_host,
+            title="History",
+            subtitle="Open previous schedules and historical records. This page reserves deeper audit workflows.",
+            links=[
+                ("Open History Workspace", lambda: self.open_legacy_tab(self.tab_history, "scheduling")),
+            ],
+        )
 
-        self.nb = ttk.Notebook(self); self.nb.pack(fill="both", expand=True, padx=10, pady=(6,10))
+        self.pages = {
+            "dashboard": self.page_dashboard,
+            "configuration": self.page_configuration,
+            "scheduling": self.page_scheduling,
+            "analysis": self.page_analysis,
+            "publish": self.page_publish,
+            "history": self.page_history,
+        }
+        for frame in self.pages.values():
+            frame.grid(row=0, column=0, sticky="nsew")
+
+        self.nb = ttk.Notebook(self.page_scheduling.content)
+        self.nb.pack(fill="both", expand=True, pady=(6, 0))
 
         self.tab_store = ttk.Frame(self.nb)
         self.tab_emps = ttk.Frame(self.nb)
@@ -5721,6 +5796,54 @@ class SchedulerApp(tk.Tk):
         self._build_calloff_tab()
         self._build_history_tab()
         self._build_settings_tab()
+        self.show_page("dashboard")
+        self._refresh_shell_status()
+
+    def show_page(self, page_key: str):
+        frame = self.pages.get(page_key)
+        if frame is None:
+            return
+        frame.tkraise()
+        self.shell.set_active_nav(page_key)
+
+    def open_legacy_tab(self, tab, page: str = "scheduling"):
+        self.show_page(page)
+        try:
+            self.nb.select(tab)
+        except Exception:
+            pass
+
+    def open_schedule_changes(self):
+        self.open_legacy_tab(self.tab_changes, "scheduling")
+
+    def open_publish(self):
+        self.show_page("publish")
+
+    def _refresh_shell_status(self):
+        try:
+            store = self.model.store_info.store_name.strip() or "Unassigned"
+        except Exception:
+            store = "Unassigned"
+        week = self.current_label or "Not selected"
+        warning_count = len(self.current_warnings or [])
+        state_text = "Draft"
+        try:
+            if self.current_assignments:
+                state_text = "Generated"
+        except Exception:
+            pass
+        self.shell.header_store_var.set(f"Store: {store}")
+        self.shell.header_week_var.set(f"Week: {week}")
+        self.shell.header_state_var.set(f"State: {state_text}")
+        self.shell.header_warning_var.set(f"Warnings: {warning_count}")
+        self.shell.status_operation_var.set(self.status_var.get() or "Ready")
+        self.shell.status_schedule_var.set(state_text)
+        dash_status = "No schedule generated yet"
+        if self.current_assignments:
+            dash_status = f"Filled slots: {self.current_filled}/{self.current_total_slots} • Assignments: {len(self.current_assignments)}"
+        self.page_dashboard.week_var.set(f"Current Week: {week}")
+        self.page_dashboard.status_var.set(f"Status: {dash_status}")
+        self.page_dashboard.warning_var.set(f"Warnings: {warning_count}")
 
     # -------- Store tab --------
     def _build_store_tab(self):
@@ -9248,7 +9371,15 @@ class SchedulerApp(tk.Tk):
         try:
             save_data(self.model, self.data_path)
             self._set_status(f"Saved {self.data_path} • {datetime.datetime.now().strftime('%H:%M:%S')}")
+            try:
+                self.shell.status_save_var.set("Saved")
+            except Exception:
+                pass
         except Exception as ex:
+            try:
+                self.shell.status_save_var.set("Save Error")
+            except Exception:
+                pass
             messagebox.showerror("Save", f"Save failed: {ex}")
 
     def open_dialog(self):
@@ -9329,7 +9460,10 @@ class SchedulerApp(tk.Tk):
             self.mg_weekly_hours_cap_var.set(float(self.model.manager_goals.weekly_hours_cap))
             self.mg_call_depth_var.set(int(self.model.manager_goals.call_list_depth))
             self.mg_include_noncert_var.set(bool(self.model.manager_goals.include_noncertified_in_call_list))
-
+        try:
+            self._refresh_shell_status()
+        except Exception:
+            pass
 
 
     def _on_toggle_learn_from_history(self):
@@ -9404,6 +9538,10 @@ class SchedulerApp(tk.Tk):
 
     def _set_status(self, s: str):
         self.status_var.set(s)
+        try:
+            self._refresh_shell_status()
+        except Exception:
+            pass
 
 def main():
     _install_crash_hooks()
