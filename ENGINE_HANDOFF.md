@@ -1,21 +1,31 @@
-# Engine Handoff
+# Engine Handoff — Manager Intelligence Layer
 
-## Scope statement for this PR
-This PR is a **UI shell/navigation refactor**. The scheduling engine behavior is intentionally preserved.
+## Scope statement
+This change adds enterprise manager-intelligence adapters while preserving the rebuilt engine architecture and existing solver pathways.
 
-## Engine impact
-- No solver rewrite was performed.
-- No business rule logic was intentionally changed.
-- Existing generation/save/load workflows continue to call current engine/data methods.
+## New engine-side helpers
+- `build_coverage_risk_map(model, label, assignments)`
+- `simulate_calloff_impact(model, label, assignments, employee_name, days)`
+- `build_schedule_health_summary(filled_slots, total_slots, warnings, risk_windows, diagnostics)`
 
-## Minimal wiring impact
-- Header and dashboard now surface generated schedule summary values already maintained by existing app state (`current_assignments`, `current_filled`, `current_total_slots`, warning count).
-- Status bar now reflects operation text and schedule state derived from existing state without altering solver decisions.
+All are implemented in:
+- `LaborForceScheduler/engine/manager_intelligence.py`
 
-## Verification references
-- Syntax/import checks passed.
-- Direct schedule generation smoke and save/load roundtrip smoke passed in headless mode.
-- Full Tk runtime smoke (launch/navigation) is environment-limited in this container due to missing display.
+## Architectural notes
+- Helpers use existing engine data and rule-check mechanisms (`build_requirement_maps`, `count_coverage_per_tick`, `is_employee_available`, clopen map helpers).
+- No solver rewrite or core-generation replacement was introduced.
+- UI wiring consumes helper outputs through scheduling workspace payload composition in `SchedulerApp._refresh_scheduling_workspace()`.
 
-## Next engine-related caution
-As future UI extraction proceeds, keep all engine calls centralized and avoid duplicating scheduling invocation logic across pages.
+## Safety and state integrity
+- Call-off simulation is non-mutating; it computes from copied assignment lists.
+- Live schedule data remains sourced from `current_assignments/current_*` app state.
+- Improvement actions are routed to existing proven flows rather than speculative optimizer branches.
+
+## First-version heuristic disclosure
+- Fairness and compliance scores in health summary are heuristic rollups over warnings/limiting factors.
+- Coverage and risk dimensions are direct schedule-state computations.
+
+## Verification summary
+- Static compile checks passed.
+- Engine smoke execution passed for generation/risk/call-off/health/save-load path.
+- UI runtime launch in this environment is headless-limited (no display server).
