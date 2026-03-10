@@ -1,36 +1,61 @@
-# UI Handoff
+# UI Handoff – Scheduling Workspace (Edit & Review)
 
-## New shell structure introduced
-The Tkinter app now initializes a shell layout that wraps the legacy notebook in a page-host architecture:
-- **Top header**: app title, store/week context, action buttons (Generate/Improve/Publish/Save/Open/New), schedule state and warning summary.
-- **Left navigation**: Dashboard, Configuration, Scheduling, Analysis, Publish, History.
-- **Center workspace/page host**: page-level navigation and landing pages.
-- **Bottom status bar**: save status, operation status, and schedule state.
+## What is new in this PR
+A new manager-focused **Scheduling workspace** now lives directly in the shell-hosted Scheduling page and is intended to be the primary review/edit surface.
 
-Implementation location:
-- `LaborForceScheduler/ui/shell.py`
-- `LaborForceScheduler/ui/pages/__init__.py`
-- integrated into `LaborForceScheduler/scheduler_app_v3_final.py`
+### New workspace structure
+1. **Scheduling toolbar/subheader**
+   - Week, state, issue count.
+   - Quick actions: Generate, Improve, Save, Publish.
+   - Legacy fallback shortcut button.
 
-## Page map
-- **Dashboard**: week, status summary, warning count, quick actions.
-- **Configuration** (landing): links to Store, Employees, Weekly Overrides, Requirements.
-- **Scheduling**: host page containing the existing full legacy notebook workflows.
-- **Analysis** (landing): links to Analysis, Changes, Heatmap, Call-Off.
-- **Publish** (landing): links to Print/Export and publish flow.
-- **History** (landing): links to history workspace.
+2. **Workflow step rail**
+   - Inputs → Generate → Review → Edit → Publish → Lock.
+   - Orientation aid (not a hard wizard).
 
-## What was bridged instead of rewritten
-This PR intentionally **bridges** existing complex workflows rather than rewriting them:
-- Existing 14-tab legacy notebook remains intact and is hosted inside the new Scheduling page.
-- Navigation entries open the proper legacy tab through `open_legacy_tab(...)`.
-- Existing generation/save/load logic and engine integration remain in current methods.
-- Existing print/export/manual edit/manager goals/history/settings screens remain reachable via bridge links.
+3. **Weekly schedule grid**
+   - Rows: employees.
+   - Columns: Sun–Sat + total hours.
+   - Cells: area + shift window text + duration.
+   - Selection support with row/cell focus behavior.
 
-## What should happen in the next UI PR
-1. Split large legacy tab builders into dedicated page/widget modules (incremental extraction).
-2. Move old notebook tabs into domain pages under `ui/pages/` one-by-one.
-3. Introduce reusable widgets (summary cards, KPI tiles, action rails) under `ui/widgets/`.
-4. Add explicit dirty-state tracking and richer status bar operation lifecycle.
-5. Replace remaining direct-tab jumps with true routed page content.
-6. Add integration tests for shell navigation and bridge reachability.
+4. **Inspector / editor panel**
+   - Selected employee/day details.
+   - Assigned shifts and areas.
+   - Weekly hour summary.
+   - Edit bridge button into legacy manual editor.
+   - Analysis bridge button.
+
+5. **Issue / risk panel**
+   - Shows engine warnings.
+   - Shows diagnostics limiting factors when present.
+   - Clickable issue rows to load message into inspector issue text.
+
+6. **Summary / health strip**
+   - Total scheduled hours.
+   - Coverage filled/total slots.
+   - Health score placeholder (coverage adjusted by warning pressure).
+   - Draft-change status text.
+
+## Fully implemented in this PR
+- New scheduling workspace layout and data wiring from current app state.
+- Grid + inspector selection/update flow.
+- Warning + diagnostics issue list feed.
+- Scheduling toolbar actions wired to existing app actions.
+- Legacy fallback preservation via embedded notebook host.
+
+## What bridges old edit behavior
+- **Edit Selected (Legacy Manual)** button opens the existing legacy Manual Edit tab.
+- **Open Explain / Analysis** opens existing analysis tab.
+- **Legacy Notebook** action opens the legacy scheduling notebook context.
+
+## What still relies on legacy scheduling views
+- Deep/manual shift editing mechanics remain in legacy Manual Edit tab.
+- Existing print/export and publish flows remain in legacy notebook tabs.
+- Existing advanced analysis/heatmap/call-off/history flows remain legacy-hosted.
+
+## Next extraction step (recommended)
+1. Extract legacy manual-edit operations into dedicated widgets callable from inspector context.
+2. Add direct assignment edit commit path on the new page (keep legacy as fallback during rollout).
+3. Add richer issue-to-grid focusing (parse day/employee/timeslot targeting from warnings).
+4. Move print/export/publish controls into shell-native publish surface after parity verification.
