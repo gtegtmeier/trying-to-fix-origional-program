@@ -1,54 +1,47 @@
 # Engine Handoff
 
-## Phase 2 Outcome
-The rebuilt `engine` package is now the primary owner of scheduling logic for generation, hard-rule feasibility checks, soft scoring, and diagnostics.
+## Phase 3 Parity Pass Outcome
+The modular engine now restores core business-rule depth that was reduced during Phase 2 while preserving the rebuilt architecture.
 
-## Legacy Solver Dependency Removal / Isolation
-### Removed from `engine/solver.py`
-- Direct imports/calls to:
-  - `generate_schedule`
-  - `generate_schedule_multi_scenario`
-  - `apply_demand_forecast_to_model`
-- Legacy diagnostics passthrough (`legacy_diag`) merge path.
+## What changed in core scheduling behavior
 
-### Removed from `engine/scoring.py`
-- Direct dependency on legacy scoring helpers:
-  - `history_stats_from`
-  - `schedule_score`
-  - `schedule_score_breakdown`
+### 1) Minor-rule parity moved into constructive feasibility
+- ND minor enforcement is now checked at candidate-evaluation time in `engine/solver.py`.
+- School-week behavior now directly controls:
+  - daily caps (3h school days / 8h otherwise for `MINOR_14_15`),
+  - weekly caps (18h school week / 40h non-school week),
+  - allowed time windows (07:00 start floor, 19:00 school-week latest, 21:00 non-school latest).
+- Hard audits in `engine/rules.py` mirror these checks so violations are explicit if introduced.
+- Diagnostics now expose minor-block reasons from the solver (e.g., `minor_daily_hours`, `minor_time_window`).
 
-### Remaining legacy adapters (isolated, non-core solve)
-- `engine/analysis.py` still wraps app-level analysis/explanation helpers for UI analytics tabs.
-- `engine/parsing.py` still wraps manual schedule text parsing helpers.
-- `engine/persistence.py` still re-exports save/load functions from app module.
+### 2) Constructive minimum-shift behavior
+- `min_hours_per_shift` is no longer only a post-hoc audit concept.
+- When a new shift block is started, the solver attempts to place a segment sized to the employee minimum shift length (bounded by requirement window and max coverage).
+- Post-solve min-shift audit remains as a safety net, but generation now avoids creating tiny fragments where feasible.
 
-These remaining wrappers are outside core schedule generation/constraint/scoring execution path.
+### 3) Demand input is now operationally connected
+- Demand multipliers are applied during normalization to shape requirement min/preferred/max counts before solving.
+- Diagnostics include explicit notes that demand multipliers were applied.
 
-## What Is Now Enforced in Engine Core
-- Active-employee filtering.
-- Area eligibility.
-- Day availability.
-- Weekly override blocking.
-- No overlap per employee/day.
-- Per-employee weekly max hours.
-- Global weekly max cap.
-- Max shifts per day.
-- Split-shift prohibition when disabled.
-- Max shift length at candidate time.
-- Minimum rest window for clopen avoidance.
-- Post-solve hard audits including min/max shift duration and min coverage checks.
+### 4) Soft scoring depth restored
+`engine/scoring.py` now actively scores previously reduced dimensions:
+- hour imbalance,
+- participation miss,
+- low-hours utilization pressure,
+- near-cap pressure,
+- target-minimum-fill pressure,
+- risk fragile coverage,
+- single-point failure risk,
+- new-employee introduction penalty,
+- plus existing coverage, preferred-cap, split-shift, and stability terms.
 
-## Diagnostics & Explainability Changes
-- Explicit input classification buckets: hard, soft, informational, deprecated.
-- Automatic disconnected input detection for unclassified `settings` and `manager_goals` fields.
-- Validation warnings now include disconnected-input summary.
-- Run diagnostics now include:
-  - hard-rule violations
-  - soft score + breakdown
-  - coverage summary
-  - informational notes
-  - limiting factors and infeasible signal
+### 5) Rest-window behavior correction
+- Rest-window checks are enforced cross-day, avoiding accidental same-day adjacency blocking while preserving clopen protection intent.
 
-## Known Gaps / Remaining Work
-- Risk-related toggles/knobs are surfaced explicitly, but not yet expanded into standalone risk score terms beyond current soft model.
-- Phase-2 solver is deterministic greedy coverage-first and does not yet replicate all advanced search heuristics from monolithic legacy implementation.
+## Intentional informational/deprecated classifications (unchanged by design)
+- Pattern-learning/history-fairness data remains informational in engine core (explicitly traceable in matrix and score breakdown).
+- Legacy `weekly_hours_cap` remains deprecated compatibility input.
+
+## Remaining known gaps
+- Full historical pattern/learned-fit optimization is not reintroduced into core solver search in this phase.
+- Department-specific behavior beyond explicit area eligibility is still represented through configured employee area permissions rather than special-case departmental rule tables.

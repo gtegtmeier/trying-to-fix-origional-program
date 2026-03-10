@@ -1,27 +1,29 @@
 # Traceability Matrix
 
-| UI field / workflow | Normalized engine input | Classification | Final handling | Code locations | Status |
-|---|---|---|---|---|---|
-| Generate button (`on_generate`) | `normalize_model(..., label)` + `run_scheduler_engine(...)` | Pipeline entrypoint | Directly invokes in-engine normalization/validation/solve/audit/score pipeline | `LaborForceScheduler/scheduler_app_v3_final.py`, `LaborForceScheduler/engine/solver.py` | Connected |
-| Requirements grid (`min/preferred/max`) | `requirements[RequirementKey]` | Hard+soft source | `min_count` enforced in generation pass 1, `preferred_count` targeted in pass 2, `max_count` audited | `engine/normalization.py`, `engine/solver.py`, `engine/rules.py` | Connected |
-| Employee `areas_allowed` | `hard_inputs.employee_shift_limits[*].areas_allowed` | Hard enforced | Assignment candidacy hard-filtered + audited post-solve | `engine/normalization.py`, `engine/solver.py`, `engine/rules.py` | Connected |
-| Employee `max_weekly_hours` | `hard_inputs.employee_shift_limits[*].max_weekly_hours` | Hard enforced | Candidate rejection if exceeded + post-audit violation | `engine/normalization.py`, `engine/solver.py`, `engine/rules.py` | Connected |
-| Employee `max_shifts_per_day` | `hard_inputs.employee_shift_limits[*].max_shifts_per_day` | Hard enforced | Candidate rejection via projected merge-count + post-audit | `engine/normalization.py`, `engine/solver.py`, `engine/rules.py` | Connected |
-| Employee `min_hours_per_shift` | `hard_inputs.employee_shift_limits[*].min_hours_per_shift` | Hard enforced | Post-solve hard audit catches below-min contiguous segments | `engine/normalization.py`, `engine/rules.py` | Connected |
-| Employee `max_hours_per_shift` | `hard_inputs.employee_shift_limits[*].max_hours_per_shift` | Hard enforced | Candidate rejection via projected segment length + post-audit | `engine/normalization.py`, `engine/solver.py`, `engine/rules.py` | Connected |
-| Employee `split_shifts_ok` | `hard_inputs.employee_shift_limits[*].split_shifts_ok` | Hard enforced | Candidate rejection when projected split count > 1 while toggle is false | `engine/normalization.py`, `engine/solver.py` | Connected |
-| Employee `avoid_clopens` + settings `min_rest_hours` | `hard_inputs.min_rest_hours` + per-employee flag | Hard enforced | Candidate rejection when rest-window projection violates minimum rest | `engine/normalization.py`, `engine/solver.py`, `engine/rules.py` | Connected |
-| Weekly overrides (off-day / blocked ranges) | `model.weekly_overrides` (consumed in solver) | Hard enforced | Candidate rejection for matching week-label/day/employee blocked windows | `engine/solver.py` | Connected |
-| Manager `maximum_weekly_cap` | `hard_inputs.max_weekly_cap` | Hard enforced | Candidate rejection once global hours cap would be exceeded + post-audit | `engine/normalization.py`, `engine/solver.py`, `engine/rules.py` | Connected |
-| Manager `preferred_weekly_cap` | `soft_inputs.preferred_weekly_cap` | Soft scored | Applied in soft penalty (`preferred_weekly_cap_pen`) | `engine/normalization.py`, `engine/scoring.py` | Connected |
-| Coverage goal + scoring weights (`w_*`) | `soft_inputs.coverage_goal_pct`, `soft_inputs.weights` | Soft scored | Coverage shortfall/split/stability penalties weighted by settings | `engine/normalization.py`, `engine/scoring.py` | Connected |
-| Stability toggle + previous schedule map | `soft_inputs.stability_enabled` + `prev_tick_map` | Soft scored | Tick-level assignment drift penalty in breakdown | `engine/normalization.py`, `engine/scoring.py` | Connected |
-| Risk toggle and risk-related knobs | Classified under `soft_inputs` or disconnected | Soft/informational surfaced | Explicitly reported in diagnostics; currently not separate score term in Phase 2 solver | `engine/normalization.py`, `engine/explain.py` | Connected (explicitly surfaced) |
-| Employee `employee_type`, store identity fields | `informational_inputs.*` | Informational only | Included in diagnostics only, never used for feasibility/scoring | `engine/normalization.py`, `engine/explain.py` | Connected (informational) |
-| Legacy `weekly_hours_cap` | `deprecated_inputs.weekly_hours_cap_legacy` | Deprecated/dead | Explicitly flagged in disconnected/deprecated diagnostics | `engine/normalization.py`, `engine/explain.py` | Connected (deprecated) |
-| Unclassified settings/manager-goal fields | `disconnected_inputs` | Disconnected surfaced | Auto-detected and listed in validation + diagnostics (no silent ignore) | `engine/normalization.py`, `engine/validation.py`, `engine/explain.py` | Connected (explicitly surfaced) |
-| Save / Load | JSON `DataModel` persistence | Foundational input source | Existing persistence preserved; engine consumes loaded model directly | `scheduler_app_v3_final.py`, `engine/persistence.py`, `engine/solver.py` | Connected |
+| Rule / input path | Engine handling | Classification | Status | Notes |
+|---|---|---|---|---|
+| ND minor enforcement toggle (`nd_rules.enforce`) | Checked during candidate feasibility (`_minor_ok`) and hard audit (`audit_hard_constraints`) | Hard enforced | Restored | Minor constraints now actively block assignment attempts, not only diagnostics. |
+| School-week behavior (`nd_rules.is_school_week`) | Drives 14-15 daily cap (3h school day / 8h otherwise), weekly cap (18h school week / 40h non-school), and time-window cutoffs (19:00 school week / 21:00 non-school) | Hard enforced | Restored | Applies during solver candidacy and post-solve audit. |
+| Minor daily/weekly caps | Candidate rejection + audit violations | Hard enforced | Restored | Candidate block reasons are surfaced in diagnostics (`minor_daily_hours`, `minor_weekly_hours`). |
+| Minor allowed work windows | Candidate rejection + audit violations | Hard enforced | Restored | Earliest 07:00 enforced with school/non-school late cutoffs. |
+| Minor department/shift restrictions | Uses standard `areas_allowed`, `max_shifts_per_day`, `split_shifts_ok`, and shift-length limits | Hard enforced | Preserved | No separate ND area blacklist exists in source model; existing area controls remain authoritative. |
+| Demand multipliers (`demand_*_multiplier`) | Applied directly during requirement normalization (`min/preferred/max` scaling) and reported in diagnostics notes | Hard+soft shaping | Restored | Demand now materially affects requirement counts used by the solver. |
+| Requirement min/preferred/max | Constructive generation pass for min then preferred coverage | Hard+soft | Preserved | Max still audited and guarded during segment placement. |
+| Minimum shift length (`min_hours_per_shift`) | Constructive segment sizing when starting a new shift block; still audited post-solve | Hard enforced | Improved | Engine avoids creating sub-minimum fragments when feasible. |
+| Maximum shift length, weekly hours, shifts/day, split shifts, rest windows, overrides | Candidate feasibility checks + hard audit | Hard enforced | Preserved | Includes clopen avoidance and weekly override blocked ranges. |
+| Hour imbalance (`w_hour_imbalance`) | Active soft penalty in score breakdown | Soft scored | Restored | No dead placeholder remains. |
+| Participation minimum opportunity (`w_participation_miss`) | Active soft penalty for active wants-hours employees under 1 hour | Soft scored | Restored | Influences ranking outcomes through total score. |
+| Low-hours priority (`w_low_hours_priority_bonus`) | Active utilization-balance soft penalty term | Soft scored | Restored | Penalizes schedules that leave under-utilized employees far from average. |
+| Near-cap pressure (`w_near_cap_penalty`) | Active soft penalty above 85% of max weekly hours | Soft scored | Restored | Reduces piling onto high-load employees. |
+| Target minimum fill bonus (`w_target_min_fill_bonus`) | Active soft penalty for target-min shortfall | Soft scored | Restored | Included as `target_min_fill_pen` in breakdown. |
+| Risk-aware fragile coverage (`w_risk_fragile`) | Active soft penalty when staffing equals minimum | Soft scored | Restored | Controlled by `enable_risk_aware_optimization`. |
+| Single-point failure (`w_risk_single_point`) | Active soft penalty for 1-required/1-filled windows | Soft scored | Restored | Controlled by `protect_single_point_failures`. |
+| New employee penalty (`w_new_employee_penalty`) | Active soft penalty when assignment introduces names absent from prior tick map | Soft scored | Restored | Uses previous schedule signal if available. |
+| Stability/history (`enable_schedule_stability`, `w_schedule_stability`) | Active changed-tick penalty against previous schedule map | Soft scored | Preserved | Pattern-learning/history fairness remain informational in engine core. |
+| Pattern-learning and history fairness knobs | Explicitly left informational in engine-core scoring | Informational-only | Reclassified | Kept out of core solver for modularity and data-dependency separation. |
+| Legacy weekly cap (`weekly_hours_cap`) | Explicit deprecated reporting path | Deprecated | Preserved | Surfaced in disconnected/deprecated diagnostics. |
 
-## Status Legend
-- **Connected**: Input reaches the engine with explicit handling (enforced/scored/informational/deprecated/disconnected).
-- **Disconnected surfaced**: Input is not used for solve decisions but is explicitly reported (never silently ignored).
+## Explicit informational/deprecated decisions
+- `settings.learn_from_history` and pattern-learning weights are intentionally informational in engine-core scoring because they depend on learned artifacts not present in deterministic core inputs.
+- `history_fairness` remains informational-only in core (not silently ignored; score breakdown keeps the field at 0 for transparent traceability).
+- `manager_goals.weekly_hours_cap` remains deprecated compatibility input and is explicitly surfaced.
