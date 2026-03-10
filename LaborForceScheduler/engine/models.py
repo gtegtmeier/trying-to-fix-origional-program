@@ -25,6 +25,7 @@ class NormalizedInput:
     soft_inputs: Dict[str, Any]
     informational_inputs: Dict[str, Any]
     deprecated_inputs: Dict[str, Any]
+    disconnected_inputs: List[str] = field(default_factory=list)
 
 
 @dataclass

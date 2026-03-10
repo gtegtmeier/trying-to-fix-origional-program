@@ -1,35 +1,54 @@
 # Engine Handoff
 
-## What Was Preserved
-- Existing LaborForceScheduler desktop workflows and UI intent.
-- Existing persistence model (`DataModel` JSON save/load compatibility).
-- Existing solver behavior backend (`generate_schedule` + multi-scenario variant) to reduce regression risk.
+## Phase 2 Outcome
+The rebuilt `engine` package is now the primary owner of scheduling logic for generation, hard-rule feasibility checks, soft scoring, and diagnostics.
 
-## What Was Rebuilt
-A clean orchestration pipeline under `LaborForceScheduler/engine`:
-- `models.py`: canonical engine data contracts.
-- `normalization.py`: deterministic mapping from app model to engine-ready inputs.
-- `validation.py`: contradiction/missing-data checks.
-- `rules.py`: hard-rule audit pass over generated assignments.
-- `scoring.py`: soft scoring integration and breakdown capture.
-- `explain.py`: explainability payload with disconnected/deprecated input reporting.
-- `solver.py`: orchestration of all phases and bridging to legacy generator.
+## Legacy Solver Dependency Removal / Isolation
+### Removed from `engine/solver.py`
+- Direct imports/calls to:
+  - `generate_schedule`
+  - `generate_schedule_multi_scenario`
+  - `apply_demand_forecast_to_model`
+- Legacy diagnostics passthrough (`legacy_diag`) merge path.
 
-## UI Reconnection
-- `SchedulerApp.on_generate` now calls `run_scheduler_engine` and receives structured `EngineResult` output.
-- Existing downstream UI state updates (assignments/hours/warnings/diagnostics) remain intact.
+### Removed from `engine/scoring.py`
+- Direct dependency on legacy scoring helpers:
+  - `history_stats_from`
+  - `schedule_score`
+  - `schedule_score_breakdown`
 
-## Assumptions
-- Legacy generation/scoring functions already encode critical production behavior and should remain until parity-tested extraction is complete.
-- The current phase prioritizes architecture clarity, traceability, and diagnostics over algorithm replacement.
+### Remaining legacy adapters (isolated, non-core solve)
+- `engine/analysis.py` still wraps app-level analysis/explanation helpers for UI analytics tabs.
+- `engine/parsing.py` still wraps manual schedule text parsing helpers.
+- `engine/persistence.py` still re-exports save/load functions from app module.
 
-## Ambiguous / Partial / Deferred
-- Some hard constraints are audited post-solve (visibility) while deep enforcement remains in legacy solver internals.
-- Full decomposition of legacy monolithic solver into pure modular engine internals is intentionally deferred to reduce risk.
+These remaining wrappers are outside core schedule generation/constraint/scoring execution path.
 
-## First Things Future Developers Should Read
-1. `engine/solver.py` (pipeline orchestration)
-2. `engine/normalization.py` (input mapping)
-3. `engine/explain.py` (diagnostic schema)
-4. `TRACEABILITY_MATRIX.md` (field-level handling status)
-5. `scheduler_app_v3_final.py::on_generate` (UI integration point)
+## What Is Now Enforced in Engine Core
+- Active-employee filtering.
+- Area eligibility.
+- Day availability.
+- Weekly override blocking.
+- No overlap per employee/day.
+- Per-employee weekly max hours.
+- Global weekly max cap.
+- Max shifts per day.
+- Split-shift prohibition when disabled.
+- Max shift length at candidate time.
+- Minimum rest window for clopen avoidance.
+- Post-solve hard audits including min/max shift duration and min coverage checks.
+
+## Diagnostics & Explainability Changes
+- Explicit input classification buckets: hard, soft, informational, deprecated.
+- Automatic disconnected input detection for unclassified `settings` and `manager_goals` fields.
+- Validation warnings now include disconnected-input summary.
+- Run diagnostics now include:
+  - hard-rule violations
+  - soft score + breakdown
+  - coverage summary
+  - informational notes
+  - limiting factors and infeasible signal
+
+## Known Gaps / Remaining Work
+- Risk-related toggles/knobs are surfaced explicitly, but not yet expanded into standalone risk score terms beyond current soft model.
+- Phase-2 solver is deterministic greedy coverage-first and does not yet replicate all advanced search heuristics from monolithic legacy implementation.
